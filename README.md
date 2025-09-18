@@ -92,4 +92,4 @@ This mode is intentionally noisy and may send dozens of requests. Respect rate l
 No explicit license is provided; treat this repository as All Rights Reserved unless you have written permission from the author.
 
 ## Reference
-Some early version used this as jail break, but soon I found that llama3 (prof used) isn't resist to attacks [DAN](https://gist.github.com/coolaj86/6f4f7b30129b0251f61fa7baaa881516)
+Some early version used [DAN](https://gist.github.com/coolaj86/6f4f7b30129b0251f61fa7baaa881516) as jail break, but soon I found that llama3 (prof used) isn't resist to attacks 
