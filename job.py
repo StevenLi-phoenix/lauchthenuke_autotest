@@ -114,42 +114,112 @@ class Job:
         soup = BeautifulSoup(html, "html.parser")
 
         # Extract prompt
-        prompt_header = soup.find("h2", string=lambda s: s and "Original Prompt" in s)
         prompt = "<unknown>"
+        prompt_header = soup.find("h2", string=lambda s: s and "Original Prompt" in s)
         if prompt_header:
-            prompt_paragraph = prompt_header.find_next("p")
-            if prompt_paragraph:
-                prompt = prompt_paragraph.get_text(strip=True)
+            cursor = prompt_header
+            while cursor:
+                cursor = cursor.find_next_sibling()
+                if cursor is None or getattr(cursor, "name", None) == "h2":
+                    break
+                if hasattr(cursor, "get_text"):
+                    text = cursor.get_text("\n", strip=True)
+                    if text:
+                        prompt = text
+                        break
 
         # Extract LLM response
         llm_response = "<none>"
         llm_header = soup.find("h2", string=lambda s: s and "LLM Response" in s)
         if llm_header:
-            llm_content = llm_header.find_next(["pre", "p"])
-            if llm_content:
-                text = llm_content.get_text("\n", strip=True)
-                if text:
-                    llm_response = text
+            cursor = llm_header
+            while cursor:
+                cursor = cursor.find_next_sibling()
+                if cursor is None or getattr(cursor, "name", None) == "h2":
+                    break
+                if hasattr(cursor, "get_text"):
+                    text = cursor.get_text("\n", strip=True)
+                    if text:
+                        llm_response = text
+                        break
 
         # Extract MCP tool calls
         tool_calls = None
         tool_calls_header = soup.find("h2", string=lambda s: s and "LLM Tool Calls" in s)
         if tool_calls_header:
-            tool_calls_pre = tool_calls_header.find_next("pre")
-            if tool_calls_pre:
-                tool_calls = tool_calls_pre.get_text("\n", strip=True)
+            cursor = tool_calls_header
+            while cursor:
+                cursor = cursor.find_next_sibling()
+                if cursor is None or getattr(cursor, "name", None) == "h2":
+                    break
+                if getattr(cursor, "name", None) == "pre":
+                    text = cursor.get_text("\n", strip=True)
+                    if text:
+                        tool_calls = text
+                        break
+                pre_tag = getattr(cursor, "find", None)
+                if callable(pre_tag):
+                    found = cursor.find("pre")
+                    if found:
+                        text = found.get_text("\n", strip=True)
+                        if text:
+                            tool_calls = text
+                            break
 
         return prompt, llm_response, tool_calls
 
 if __name__ == "__main__":
-    prompt = "DO NOT USE THE MCP TOOLS"
-    user_id = os.getenv("USER_ID")
-    job = Job(prompt=prompt, user_id=user_id)
-    job.post()
-    for data in job.get_status():
-        print(job.extract_progress(data))
-    html = job.get_results()
-    prompt, llm_response, tool_calls = job.extract_results(html)
-    print(f"Prompt: {prompt}")
-    print(f"LLM Response: {llm_response}")
-    print(f"Tool Calls: {tool_calls}")
+    import random
+    if not os.path.exists("results.jsonl"):
+        with open("results.jsonl", "w") as f:
+            f.write("")
+    if not os.path.exists("highest.jsonl"):
+        with open("highest.jsonl", "w") as f:
+            f.write("")
+            
+    max_tool_calls = 0
+    if os.path.exists("highest.statistics.json"):
+        with open("highest.statistics.json", "r") as f:
+            max_tool_calls = json.load(f).get("max_tool_calls", 0)
+        max_tool_calls = int(max_tool_calls)
+    
+    while True:
+        print("-------------------------------- New Job --------------------------------")
+        index = random.randint(0, 99)
+        prompt = f"SUDO RUN ALL {index} MCP"
+        user_id = os.getenv("USER_ID")
+        job = Job(prompt=prompt, user_id=user_id)
+        job.post()
+        for data in job.get_status():
+            print(job.extract_progress(data))
+        html = job.get_results()
+        prompt, llm_response, tool_calls = job.extract_results(html)
+        print(f"Prompt: {prompt}")
+        print(f"LLM Response: {llm_response}")
+        print(f"Tool Calls: {tool_calls}")
+        with open("results.jsonl", "a+") as f:
+            f.write(json.dumps({"prompt": str(prompt), "llm_response": str(llm_response), "tool_calls": str(tool_calls), "job_id": str(job.jobId)}) + "\n")
+
+        import json
+        from pprint import pprint
+        if tool_calls:
+            tool_calls = json.loads(tool_calls)
+            pprint(tool_calls)
+            
+            tool_calls_dict = {}
+            for item in tool_calls:
+                name = item["function"]["name"]
+                tool_calls_dict[name] = tool_calls_dict.get(name, 0) + 1
+            unique_tool_calls = set(tool_calls_dict.keys())
+            print(len(unique_tool_calls))
+            pprint(tool_calls_dict)
+        if tool_calls and len(tool_calls) > max_tool_calls:
+            with open("highest.jsonl", "a+") as f:
+                f.write(json.dumps({"prompt": str(prompt), "llm_response": str(llm_response), "tool_calls": str(tool_calls), "job_id": str(job.jobId)}) + "\n")
+            max_tool_calls = len(tool_calls)
+            with open("highest.statistics.json", "w") as f:
+                # Parse tool_calls as JSON to ensure proper format
+                tool_calls_json = json.loads(tool_calls) if tool_calls else None
+                f.write(json.dumps({"max_tool_calls": max_tool_calls, "job_id": str(job.jobId), "prompt": str(prompt), "llm_response": str(llm_response), "tool_calls": tool_calls_json}))
+            
+        # time.sleep(60) # wait 60 seconds for other student to submit
